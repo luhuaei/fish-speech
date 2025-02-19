@@ -62,7 +62,13 @@ class API(ExceptionHandler):
                 Exception: self.other_exception_handler,
             },
             factory_class=FactoryClass(http=MsgPackRequest),
-            cors_config=CORSConfig(),
+            cors_config=CORSConfig(
+                allow_origins=[re.compile(r".*")],
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_headers=["*"],
+                allow_credentials=True,
+                max_age=3600
+            )
         )
 
         # Add the state variables
