@@ -15,7 +15,8 @@ from fish_speech.models.text2semantic.inference import (
     GenerateResponse,
     WrappedGenerateResponse,
 )
-from fish_speech.utils import autocast_exclude_mps, set_seed
+from fish_speech.utils.context import autocast_exclude_mps
+from fish_speech.utils.seed import set_seed
 from fish_speech.utils.schema import ServeTTSRequest
 
 

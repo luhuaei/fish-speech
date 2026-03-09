@@ -112,3 +112,11 @@ ffprobe.exe
 # ----------
 /*.test.sh
 asr-label*
+
+# Local Agent / Jetson Artifacts
+# ------------------------------
+AGENTS.md
+compile-cache/
+jetson-bench-results/
+*.benchmark.json
+*.benchmark.csv

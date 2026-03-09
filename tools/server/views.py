@@ -29,6 +29,7 @@ from fish_speech.utils.schema import (
     AddReferenceResponse,
     DeleteReferenceResponse,
     ListReferencesResponse,
+    OpenAISpeechRequest,
     ServeTTSRequest,
     ServeVQGANDecodeRequest,
     ServeVQGANDecodeResponse,
@@ -50,8 +51,42 @@ from tools.server.model_utils import (
 )
 
 MAX_NUM_SAMPLES = int(os.getenv("NUM_SAMPLES", 1))
+OPENAI_AUDIO_MODEL = "openaudio-s1-mini"
 
 routes = Routes()
+
+
+def validate_max_text_length(text: str) -> None:
+    max_text_length = request.app.state.max_text_length
+    if max_text_length > 0 and len(text) > max_text_length:
+        raise HTTPException(
+            HTTPStatus.BAD_REQUEST,
+            content=f"Text is too long, max length is {max_text_length}",
+        )
+
+
+def render_audio_response(
+    req: ServeTTSRequest,
+    engine,
+    sample_rate: int,
+    filename_stem: str = "audio",
+):
+    fake_audios = next(inference(req, engine))
+    buffer = io.BytesIO()
+    sf.write(
+        buffer,
+        fake_audios,
+        sample_rate,
+        format=req.format,
+    )
+
+    return StreamResponse(
+        iterable=buffer_to_async_generator(buffer.getvalue()),
+        headers={
+            "Content-Disposition": f"attachment; filename={filename_stem}.{req.format}",
+        },
+        content_type=get_content_type(req.format),
+    )
 
 
 @routes.http("/v1/health")
@@ -63,6 +98,25 @@ class Health(HttpView):
     @classmethod
     async def post(cls):
         return JSONResponse({"status": "ok"})
+
+
+@routes.http("/v1/models")
+class OpenAIModels(HttpView):
+    @classmethod
+    async def get(cls):
+        return JSONResponse(
+            {
+                "object": "list",
+                "data": [
+                    {
+                        "id": OPENAI_AUDIO_MODEL,
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": "fish-speech",
+                    }
+                ],
+            }
+        )
 
 
 @routes.http.post("/v1/vqgan/encode")
@@ -131,27 +185,18 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
     Generate speech from text using TTS model.
     """
     try:
-        # Get the model from the app
-        app_state = request.app.state
-        model_manager: ModelManager = app_state.model_manager
+        model_manager: ModelManager = request.app.state.model_manager
         engine = model_manager.tts_inference_engine
         sample_rate = engine.decoder_model.sample_rate
 
-        # Check if the text is too long
-        if app_state.max_text_length > 0 and len(req.text) > app_state.max_text_length:
-            raise HTTPException(
-                HTTPStatus.BAD_REQUEST,
-                content=f"Text is too long, max length is {app_state.max_text_length}",
-            )
+        validate_max_text_length(req.text)
 
-        # Check if streaming is enabled
         if req.streaming and req.format != "wav":
             raise HTTPException(
                 HTTPStatus.BAD_REQUEST,
                 content="Streaming only supports WAV format",
             )
 
-        # Perform TTS
         if req.streaming:
             return StreamResponse(
                 iterable=inference_async(req, engine),
@@ -160,30 +205,70 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
                 },
                 content_type=get_content_type(req.format),
             )
-        else:
-            fake_audios = next(inference(req, engine))
-            buffer = io.BytesIO()
-            sf.write(
-                buffer,
-                fake_audios,
-                sample_rate,
-                format=req.format,
-            )
 
-            return StreamResponse(
-                iterable=buffer_to_async_generator(buffer.getvalue()),
-                headers={
-                    "Content-Disposition": f"attachment; filename=audio.{req.format}",
-                },
-                content_type=get_content_type(req.format),
-            )
+        return render_audio_response(req, engine, sample_rate)
     except HTTPException:
-        # Re-raise HTTP exceptions as they are already properly formatted
         raise
     except Exception as e:
         logger.error(f"Error in TTS generation: {e}", exc_info=True)
         raise HTTPException(
             HTTPStatus.INTERNAL_SERVER_ERROR, content="Failed to generate speech"
+        )
+
+
+@routes.http.post("/v1/audio/speech")
+async def openai_audio_speech(
+    req: Annotated[OpenAISpeechRequest, Body(exclusive=True)],
+):
+    """
+    Minimal OpenAI-compatible text-to-speech endpoint.
+    """
+    try:
+        model_manager: ModelManager = request.app.state.model_manager
+        engine = model_manager.tts_inference_engine
+        sample_rate = engine.decoder_model.sample_rate
+
+        validate_max_text_length(req.input)
+
+        if req.model != OPENAI_AUDIO_MODEL:
+            raise HTTPException(
+                HTTPStatus.BAD_REQUEST,
+                content=f"Unsupported model: {req.model}",
+            )
+
+        if req.speed != 1.0:
+            raise HTTPException(
+                HTTPStatus.BAD_REQUEST,
+                content="The `speed` parameter is not supported yet",
+            )
+
+        reference_id = req.voice.strip() if req.voice else None
+        if reference_id and reference_id not in set(engine.list_reference_ids()):
+            raise HTTPException(
+                HTTPStatus.BAD_REQUEST,
+                content=f"Unknown voice reference: {reference_id}",
+            )
+
+        tts_req = ServeTTSRequest(
+            text=req.input,
+            format=req.response_format,
+            reference_id=reference_id,
+            references=[],
+            streaming=False,
+        )
+        return render_audio_response(
+            tts_req,
+            engine,
+            sample_rate,
+            filename_stem="speech",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in OpenAI speech generation: {e}", exc_info=True)
+        raise HTTPException(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            content="Failed to generate speech",
         )
 
 

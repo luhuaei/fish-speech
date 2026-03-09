@@ -56,10 +56,13 @@
 Here are the official documents for Fish Audio S2, follow the instructions to get started easily.
 
 - [Installation](https://speech.fish.audio/install/)
+- [Finetune](https://speech.fish.audio/finetune/)
 - [Command Line Inference](https://speech.fish.audio/inference/#command-line-inference)
 - [WebUI Inference](https://speech.fish.audio/inference/#webui-inference)
 - [Server Inference](https://speech.fish.audio/server/)
+- [Samples](https://speech.fish.audio/samples/)
 - [Docker Setup](https://speech.fish.audio/install/#docker-setup)
+- [Jetson AGX Orin Deployment](docs/jetson-agx-orin.md)
 
 > [!IMPORTANT]
 > **For SGLang server, please read [SGLang-Omni README](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/models/fishaudio_s2_pro/README.md).**

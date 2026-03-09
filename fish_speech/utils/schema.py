@@ -82,7 +82,7 @@ class ServeTTSRequest(BaseModel):
     text: str
     chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
     # Audio format
-    format: Literal["wav", "pcm", "mp3"] = "wav"
+    format: Literal["wav", "pcm", "mp3", "flac"] = "wav"
     # References audios for in-context learning
     references: list[ServeReferenceAudio] = []
     # Reference id
@@ -134,3 +134,11 @@ class UpdateReferenceResponse(BaseModel):
     message: str
     old_reference_id: str
     new_reference_id: str
+
+
+class OpenAISpeechRequest(BaseModel):
+    model: str = Field(..., min_length=1)
+    input: str = Field(..., min_length=1)
+    voice: str | None = None
+    response_format: Literal["wav", "mp3", "flac"] = "mp3"
+    speed: Annotated[float, Field(gt=0.0)] = 1.0

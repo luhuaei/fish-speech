@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 
-import loralib as lora
+try:
+    import loralib as lora
+except ModuleNotFoundError:
+    lora = None
 
 
 @dataclass
@@ -22,7 +25,25 @@ def _replace_embedding(old_embed, lora_config):
     return new_embed
 
 
+def _replace_linear(old_linear, lora_config):
+    new_linear = lora.Linear(
+        in_features=old_linear.in_features,
+        out_features=old_linear.out_features,
+        bias=old_linear.bias is not None,
+        r=lora_config.r,
+        lora_alpha=lora_config.lora_alpha,
+        lora_dropout=lora_config.lora_dropout,
+    )
+    new_linear.weight.data.copy_(old_linear.weight.data)
+    if old_linear.bias is not None:
+        new_linear.bias.data.copy_(old_linear.bias.data)
+    return new_linear
+
+
 def setup_lora(model, lora_config):
+    if lora is None:
+        raise ModuleNotFoundError("loralib is required only when LoRA is enabled")
+
     # Replace the embedding layer with a LoRA layer, preserving pretrained weights
     model.embeddings = _replace_embedding(model.embeddings, lora_config)
     model.codebook_embeddings = _replace_embedding(
@@ -61,18 +82,7 @@ def setup_lora(model, lora_config):
 
     for module, layer_name in linears:
         old_linear = getattr(module, layer_name)
-        updated_linear = lora.Linear(
-            in_features=old_linear.in_features,
-            out_features=old_linear.out_features,
-            bias=old_linear.bias is not None,
-            r=lora_config.r,
-            lora_alpha=lora_config.lora_alpha,
-            lora_dropout=lora_config.lora_dropout,
-        )
-        updated_linear.weight.data.copy_(old_linear.weight.data)
-        if old_linear.bias is not None:
-            updated_linear.bias.data.copy_(old_linear.bias.data)
-        setattr(module, layer_name, updated_linear)
+        setattr(module, layer_name, _replace_linear(old_linear, lora_config))
 
     # Mark only the LoRA layers as trainable
     lora.mark_only_lora_as_trainable(model, bias="none")
